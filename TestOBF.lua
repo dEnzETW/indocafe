@@ -1,5 +1,5 @@
 --[[
-    TP GRAB TEST - Standalone
+    TP GRAB TEST - Character.Events.Grab
     Mekanisme:
       1) ON untuk mengaktifkan mode tunggu.
       2) Klik satu nama di daftar player.
@@ -267,15 +267,22 @@ local function startThrottledFollow(target, token)
 end
 
 local function fireGrabOnce()
-    local replicatedStorage = game:GetService("ReplicatedStorage")
-    local localEvents = replicatedStorage:FindFirstChild("LocalEvents")
-    local grabEvent = localEvents and localEvents:FindFirstChild("Grab")
-    if not grabEvent or not grabEvent:IsA("BindableEvent") then
-        return false, "LocalEvents.Grab tidak ditemukan / bukan BindableEvent"
+    local character = player.Character
+    if not character then
+        return false, "Character belum tersedia"
     end
-    local ok, err = pcall(function() grabEvent:Fire() end)
-    if not ok then return false, "Grab error: " .. tostring(err) end
-    return true, "Grab dipanggil satu kali"
+
+    local events = character:FindFirstChild("Events")
+    local grabEvent = events and events:FindFirstChild("Grab")
+    if not grabEvent or not grabEvent:IsA("RemoteEvent") then
+        return false, "Character.Events.Grab tidak ditemukan / bukan RemoteEvent"
+    end
+
+    local ok, err = pcall(function()
+        grabEvent:FireServer()
+    end)
+    if not ok then return false, "FireServer error: " .. tostring(err) end
+    return true, "Character.Events.Grab FireServer dipanggil"
 end
 
 local function waitWhileValid(target, token, duration)
