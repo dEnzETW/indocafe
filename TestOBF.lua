@@ -292,11 +292,17 @@ local featureNames = {
 }
 local featureButtons = {}
 for i, name in ipairs(featureNames) do
+    local y = 22 + (i - 1) * 22
+    if i >= 3 then y = y + 22 end -- reserve the row directly below AUTO GRAB for SKYWALK
     local b = smallButton(home, "Feature_" .. i, name .. (i <= 2 and "     ›" or "     OFF"),
-        UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 22 + (i - 1) * 22), 9)
+        UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, y), 9)
     b.TextXAlignment = Enum.TextXAlignment.Left
     featureButtons[i] = b
 end
+
+local skyWalkOpen = smallButton(home, "SKYWALK_Open", "☁  SKYWALK     ›",
+    UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 66), 9)
+skyWalkOpen.TextXAlignment = Enum.TextXAlignment.Left
 
 -- Footer branding moved together to the bottom, as requested.
 local footerTitle = label(panel, "FooterTitle", "GELUT",
@@ -1133,6 +1139,189 @@ end)
 task.defer(refreshAutoGrabPlayers)
 task.delay(0.75, function()
     if gui.Parent then refreshAutoGrabPlayers() end
+end)
+
+-- SKYWALK folder/page: integrated from GELUT SKY WALK V13 standalone test.
+-- The separate standalone ScreenGui is intentionally replaced by this GELUT page.
+local skyWalkFolder = Instance.new("Folder")
+skyWalkFolder.Name = "SKYWALK"
+skyWalkFolder.Parent = gui
+
+local skyWalkPage = Instance.new("Frame")
+skyWalkPage.Name = "SKYWALK_Page"
+skyWalkPage.Size = UDim2.fromScale(1, 1)
+skyWalkPage.BackgroundTransparency = 1
+skyWalkPage.Visible = false
+skyWalkPage.Parent = content
+
+local skyWalkBack = smallButton(skyWalkPage, "SKYWALK_Back", "‹ BACK",
+    UDim2.fromOffset(48, 20), UDim2.fromOffset(0, 0), 8)
+local skyWalkToggle = smallButton(skyWalkPage, "SKYWALK_Toggle", "SKY PLATFORM  OFF",
+    UDim2.new(1, 0, 0, 42), UDim2.fromOffset(0, 34), 10)
+skyWalkToggle.TextWrapped = true
+local skyWalkInfo = label(skyWalkPage, "SKYWALK_Info",
+    "TARGET: 4000 STUDS\nPLATFORM: 250000 x 10 x 250000\nMOVE: JOYSTICK NORMAL",
+    UDim2.new(1, 0, 0, 48), UDim2.fromOffset(0, 82),
+    Enum.Font.GothamMedium, MUTED, 7, Enum.TextXAlignment.Center)
+skyWalkInfo.TextWrapped = true
+
+local SKY_TELEPORT_HEIGHT = 4000
+local skyWalkEnabled = false
+local skyWalkSavedPivot = nil
+local skyWalkSavedPosition = nil
+local skyWalkPlatform = nil
+local skyWalkHeartbeat = nil
+
+local function skyWalkUpdateButton(isOn, actualHeight)
+    if isOn then
+        skyWalkToggle.Text = string.format(
+            "SKY PLATFORM  ON\nTARGET: %d | ACTUAL: %.0f STUDS",
+            SKY_TELEPORT_HEIGHT, actualHeight or 0)
+        skyWalkToggle.BackgroundColor3 = Color3.fromRGB(95, 25, 25)
+    else
+        skyWalkToggle.Text = string.format(
+            "SKY PLATFORM  OFF\nTARGET: %d | ACTUAL: --",
+            SKY_TELEPORT_HEIGHT)
+        skyWalkToggle.BackgroundColor3 = PILL
+    end
+end
+
+local function skyWalkClearObjects()
+    if skyWalkHeartbeat then
+        skyWalkHeartbeat:Disconnect()
+        skyWalkHeartbeat = nil
+    end
+    if skyWalkPlatform then
+        skyWalkPlatform:Destroy()
+        skyWalkPlatform = nil
+    end
+end
+
+local function skyWalkStop()
+    skyWalkEnabled = false
+    skyWalkClearObjects()
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if character and skyWalkSavedPivot then
+        pcall(function()
+            character:PivotTo(skyWalkSavedPivot)
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+        end)
+    end
+    if humanoid then
+        humanoid.PlatformStand = false
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+    skyWalkSavedPivot = nil
+    skyWalkSavedPosition = nil
+    skyWalkUpdateButton(false)
+end
+
+local function skyWalkStart()
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not character or not root or not humanoid or humanoid.Health <= 0 then
+        warn("SKYWALK: character is not ready.")
+        return
+    end
+
+    skyWalkClearObjects()
+    skyWalkSavedPivot = character:GetPivot()
+    skyWalkSavedPosition = root.Position
+    skyWalkEnabled = true
+
+    local ok = pcall(function()
+        character:PivotTo(skyWalkSavedPivot + Vector3.new(0, SKY_TELEPORT_HEIGHT, 0))
+    end)
+    if not ok then
+        skyWalkEnabled = false
+        skyWalkSavedPivot = nil
+        skyWalkSavedPosition = nil
+        skyWalkUpdateButton(false)
+        return
+    end
+
+    root = character:FindFirstChild("HumanoidRootPart")
+    humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid then
+        skyWalkStop()
+        return
+    end
+
+    local platformThickness = 10
+    local footOffset = humanoid.HipHeight + (root.Size.Y * 0.5)
+    local platformTopY = root.Position.Y - footOffset
+    skyWalkPlatform = Instance.new("Part")
+    skyWalkPlatform.Name = "GELUT_SkyWalkPlatform_V13"
+    skyWalkPlatform.Anchored = true
+    skyWalkPlatform.Size = Vector3.new(250000, 10, 250000)
+    skyWalkPlatform.CFrame = CFrame.new(
+        root.Position.X,
+        platformTopY - (platformThickness * 0.5),
+        root.Position.Z)
+    skyWalkPlatform.Transparency = 1
+    skyWalkPlatform.CanCollide = true
+    skyWalkPlatform.CanTouch = false
+    skyWalkPlatform.CanQuery = false
+    skyWalkPlatform.CastShadow = false
+    skyWalkPlatform.Parent = workspace
+
+    humanoid.PlatformStand = false
+    humanoid.AutoRotate = true
+    humanoid.Sit = false
+    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+    skyWalkUpdateButton(true, 0)
+
+    skyWalkHeartbeat = RunService.Heartbeat:Connect(function()
+        if not skyWalkEnabled then return end
+        local currentCharacter = player.Character
+        local currentRoot = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+        local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+        if not currentRoot or not currentHumanoid or currentHumanoid.Health <= 0 or not skyWalkPlatform then
+            skyWalkStop()
+            return
+        end
+        skyWalkUpdateButton(true, currentRoot.Position.Y - skyWalkSavedPosition.Y)
+    end)
+end
+
+skyWalkToggle.Activated:Connect(function()
+    if skyWalkEnabled then
+        skyWalkStop()
+    else
+        skyWalkStart()
+    end
+end)
+
+skyWalkOpen.Activated:Connect(function()
+    home.Visible = false
+    skyWalkPage.Visible = true
+end)
+skyWalkBack.Activated:Connect(function()
+    skyWalkPage.Visible = false
+    home.Visible = true
+end)
+
+player.CharacterAdded:Connect(function()
+    if skyWalkEnabled then
+        skyWalkClearObjects()
+        skyWalkEnabled = false
+        skyWalkSavedPivot = nil
+        skyWalkSavedPosition = nil
+        skyWalkUpdateButton(false)
+    end
+end)
+
+gui.Destroying:Connect(function()
+    skyWalkEnabled = false
+    skyWalkClearObjects()
 end)
 
 -- PLAYER STATS ESP: adapted from Test.lua.txt.
