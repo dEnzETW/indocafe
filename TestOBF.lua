@@ -3,14 +3,13 @@
     Mekanisme:
       1) ON untuk mengaktifkan mode tunggu.
       2) Klik satu nama di daftar player.
-      3) Simpan posisi awal, teleport 3 stud di belakang target,
-         ikuti target secara real-time, panggil Grab satu kali,
+      3) Simpan posisi awal, teleport 4 stud di belakang target,
+         ikuti target dengan PivotTo berkala (bukan setiap frame), panggil Grab satu kali,
          pertahankan follow sebentar, lalu kembali ke posisi awal.
       4) Tidak ada auto-repeat. Klik nama lagi untuk aksi berikutnya.
 ]]
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local player = Players.LocalPlayer
 if not player then return end
@@ -155,8 +154,12 @@ layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = list
 
 -- Test parameters. Follow distance is measured from the target HRP reference frame.
-local FOLLOW_DISTANCE = 5
-local GRAB_SETTLE_TIME = 0.08
+local FOLLOW_DISTANCE = 4
+-- Follow is deliberately throttled: no Heartbeat-per-frame PivotTo calls.
+local FOLLOW_INTERVAL = 0.12       -- at most about 8 follow checks per second
+local FOLLOW_MOVE_THRESHOLD = 0.4  -- move only after target shifts meaningfully
+local FOLLOW_TURN_DOT = 0.996      -- update after roughly 5 degrees of target rotation
+local GRAB_SETTLE_TIME = 0.15
 local FOLLOW_AFTER_GRAB = 1.5
 
 local armed = false
@@ -164,6 +167,7 @@ local busy = false
 local selectedTarget = nil
 local actionToken = 0
 local followConnection = nil
+local followEnabled = false
 local rowByPlayer = {}
 
 local function getCharacter(who)
@@ -176,6 +180,7 @@ local function getCharacter(who)
 end
 
 local function disconnectFollow()
+    followEnabled = false
     if followConnection then
         followConnection:Disconnect()
         followConnection = nil
@@ -212,13 +217,50 @@ local function targetIsValid(target, token)
         and getCharacter(target) ~= nil
 end
 
-local function teleportBehind(targetRoot)
-    local character = player.Character
-    if not character or not targetRoot or not targetRoot.Parent then return false end
+local function getBehindCFrame(targetRoot)
+    if not targetRoot or not targetRoot.Parent then return nil end
     local behindPosition = targetRoot.Position - targetRoot.CFrame.LookVector * FOLLOW_DISTANCE
     local facing = targetRoot.CFrame.LookVector
-    local behindCFrame = CFrame.lookAt(behindPosition, behindPosition + facing, targetRoot.CFrame.UpVector)
+    return CFrame.lookAt(behindPosition, behindPosition + facing, targetRoot.CFrame.UpVector)
+end
+
+local function teleportBehind(targetRoot)
+    local character = player.Character
+    local behindCFrame = getBehindCFrame(targetRoot)
+    if not character or not behindCFrame then return false end
     return pcall(function() character:PivotTo(behindCFrame) end)
+end
+
+local function startThrottledFollow(target, token)
+    followEnabled = true
+    task.spawn(function()
+        local _, _, initialTargetRoot = getCharacter(target)
+        local lastTargetPosition = initialTargetRoot and initialTargetRoot.Position or nil
+        local lastTargetLook = initialTargetRoot and initialTargetRoot.CFrame.LookVector or nil
+        while followEnabled and targetIsValid(target, token) do
+            local _, _, liveTargetRoot = getCharacter(target)
+            local _, _, myRoot = getCharacter(player)
+            if not liveTargetRoot or not myRoot then break end
+
+            local targetPosition = liveTargetRoot.Position
+            local targetLook = liveTargetRoot.CFrame.LookVector
+            local movedEnough = not lastTargetPosition
+                or (targetPosition - lastTargetPosition).Magnitude >= FOLLOW_MOVE_THRESHOLD
+            local turnedEnough = not lastTargetLook
+                or targetLook:Dot(lastTargetLook) <= FOLLOW_TURN_DOT
+
+            if movedEnough or turnedEnough then
+                local desiredCFrame = getBehindCFrame(liveTargetRoot)
+                if desiredCFrame then
+                    pcall(function() player.Character:PivotTo(desiredCFrame) end)
+                    lastTargetPosition = targetPosition
+                    lastTargetLook = targetLook
+                end
+            end
+            task.wait(FOLLOW_INTERVAL)
+        end
+        followEnabled = false
+    end)
 end
 
 local function fireGrabOnce()
@@ -270,16 +312,9 @@ local function runOneAction(target)
                 return
             end
 
-            -- Keep position locked behind the target during the one-shot Grab window.
+            -- Follow at a controlled interval, and only PivotTo after meaningful movement/turning.
             disconnectFollow()
-            followConnection = RunService.Heartbeat:Connect(function()
-                if not targetIsValid(target, token) then
-                    disconnectFollow()
-                    return
-                end
-                local _, _, liveTargetRoot = getCharacter(target)
-                if liveTargetRoot then teleportBehind(liveTargetRoot) end
-            end)
+            startThrottledFollow(target, token)
 
             if not waitWhileValid(target, token, GRAB_SETTLE_TIME) then
                 failureReason = "Aksi dibatalkan / target tidak valid"
