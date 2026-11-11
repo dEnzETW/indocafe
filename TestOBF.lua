@@ -1,4 +1,3 @@
-
 --[[
     GELUT COMBINED - MAIN UI PRESERVED + TP ATTACK
     Main panel appearance retained from approved GELUT layout.
@@ -19,30 +18,41 @@ if not player then
 end
 local playerGui = player:WaitForChild("PlayerGui")
 
--- WHITELIST TAHAP 1: hanya pemeriksaan akses.
-local WhitelistedUsers = {
-    "hanssaputra15",
-    "L0rdDarkShad0w",
-    "chibhothax",
-    "Mount2702Blanc",
-    "ibrak4dabra",
-    "chimicaramel",
-    "miskalagi",
-    "syunako52",
-    "Carlydemul",
-    "ChickenMcNuggetsBG",
-    "aiodxv7si",
-    "mummy77776",
-    "TOBI03310",
-    "bubbleblob1926",
-    "tkz_ht"
-}
+--==================================================
+-- dEnzCreator | REMOTE WHITELIST GATE
+-- Satu WhiteList.lua dipakai bersama oleh beberapa script.
+--==================================================
 
-if not table.find(WhitelistedUsers, player.Name) then
-    warn("[GELUT] ACCESS DENIED: @" .. player.Name)
+local WHITELIST_URL =
+    "https://raw.githubusercontent.com/dEnzETW/EatTheWorld/refs/heads/main/WhiteList.lua"
+
+local whitelistOK, whitelistResult = pcall(function()
+    local source = game:HttpGet(WHITELIST_URL)
+
+    assert(type(source) == "string" and #source > 0,
+        "Whitelist file kosong")
+
+    local chunk, compileError = loadstring(source)
+    assert(chunk, compileError or "Whitelist compile gagal")
+
+    return chunk()
+end)
+
+if not whitelistOK or whitelistResult ~= true then
+    warn("[GELUT] WHITELIST DENIED / LOAD FAILED")
+
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "dEnzCreator",
+            Text = "Whitelist gagal atau akses ditolak.",
+            Duration = 5
+        })
+    end)
+
     return
 end
-print("[GELUT] WHITELIST OK: @" .. player.Name)
+
+print("[GELUT] REMOTE WHITELIST OK: @" .. player.Name)
 
 -- Cleanup this build only
 local old
@@ -58,7 +68,7 @@ for _, container in ipairs({CoreGui, playerGui}) do
 end
 pcall(function()
     if gethui then
-        local legacy =
+        local legacy = 
 gethui():FindFirstChild("GELUT_MINI_CONTROL")
         if legacy then legacy:Destroy() end
     end
@@ -121,7 +131,7 @@ local function corner(obj, radius)
     c.Parent = obj
 end
 
-local function label(parent, name, text, size, pos, font, color,
+local function label(parent, name, text, size, pos, font, color, 
 textSize, align)
     local o = Instance.new("TextLabel")
     o.Name = name
@@ -155,6 +165,7 @@ local function smallButton(parent, name, text, size, pos, textSize)
     return b
 end
 
+-- PANEL: compact dimensions (150x290).
 local panel = Instance.new("Frame")
 panel.Name = "MainPanel"
 panel.Size = UDim2.fromOffset(150, 290)
@@ -169,6 +180,7 @@ outline.Color = RED
 outline.Thickness = 2.3
 outline.Parent = panel
 
+-- Header: STATUS HUB title removed; minimize button made smaller.
 local minimize = smallButton(panel, "MinimizeMain", "–",
     UDim2.fromOffset(22, 22), UDim2.fromOffset(96, 9), 15)
 minimize.BackgroundColor3 = Color3.fromRGB(119, 13, 31)
@@ -183,6 +195,7 @@ content.Position = UDim2.fromOffset(6, 40)
 content.BackgroundTransparency = 1
 content.Parent = panel
 
+-- HOME PAGE: compact 2x2 live Status Hub, followed by the original feature rows.
 local home = Instance.new("Frame")
 home.Name = "HomePage"
 home.Size = UDim2.fromScale(1, 1)
@@ -202,7 +215,7 @@ local function statusCard(name, x, y, caption, initialValue, valueColor)
     stroke.Color = Color3.fromRGB(54, 52, 60)
     stroke.Thickness = 1
     stroke.Parent = card
-    label(card, name .. "Label", caption,
+    local heading = label(card, name .. "Label", caption,
         UDim2.fromOffset(36, 6), UDim2.fromOffset(2, 0),
         Enum.Font.GothamMedium, MUTED, 5)
     local value = label(card, name .. "Value", initialValue,
@@ -216,6 +229,7 @@ local serverValue = statusCard("ServerCard", 49, 2, "SERVER", "Checking", WHITE)
 local fpsValue = statusCard("FPSCard", 6, 20, "FPS", "--", Color3.fromRGB(55, 150, 255))
 local playerValue = statusCard("PlayerCard", 49, 20, "PEMAIN", "-- / --", WHITE)
 
+-- Live status sampling: FPS from rendered frames; ping from Roblox Stats when exposed.
 local StatsService = game:GetService("Stats")
 local frameCount = 0
 local measuredFPS = 0
@@ -284,6 +298,7 @@ for i, name in ipairs(featureNames) do
     featureButtons[i] = b
 end
 
+-- Footer branding moved together to the bottom, as requested.
 local footerTitle = label(panel, "FooterTitle", "GELUT",
     UDim2.fromOffset(70, 11), UDim2.new(0.5, -35, 1, -27),
     Enum.Font.GothamBold, WHITE, 9, Enum.TextXAlignment.Center)
@@ -291,6 +306,7 @@ local creator = label(panel, "Creator", "dEnzCreator",
     UDim2.fromOffset(100, 10), UDim2.new(0.5, -50, 1, -15),
     Enum.Font.GothamMedium, RED, 7, Enum.TextXAlignment.Center)
 
+-- TP ATTACK PAGE within the same panel and same typography/theme
 local attackPage = Instance.new("Frame")
 attackPage.Name = "TPAttackPage"
 attackPage.Size = UDim2.fromScale(1, 1)
@@ -320,6 +336,7 @@ listLayout.Padding = UDim.new(0, 3)
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listLayout.Parent = playerList
 
+-- TP ATTACK logic from Test.lua.txt
 local attackEnabled = false
 local attackTarget = nil
 local attackPhase = "idle"
@@ -426,9 +443,10 @@ Players.PlayerRemoving:Connect(function(leaving)
     task.defer(refreshPlayers)
 end)
 
+-- Original random positioning cadence retained from Test.lua.txt
 task.spawn(function()
     while gui.Parent do
-        if attackEnabled and attackPhase == "idle" then
+        if attackEnabled and attackPhase ~= "follow" then
             local char, root = getCharacter()
             if char and root then
                 pcall(function()
@@ -446,6 +464,7 @@ task.spawn(function()
     end
 end)
 
+-- Original prepare -> Grab -> follow -> Throw cadence retained
 task.spawn(function()
     while gui.Parent do
         if not attackEnabled then
@@ -481,45 +500,27 @@ task.spawn(function()
                 char, root = getCharacter()
                 events = char and char:FindFirstChild("Events")
 
-                local followStarted = false
-
                 if targetRoot and char and root then
                     attackPhase = "follow"
-                    followConnection = RunService.Heartbeat:Connect(function()
+                    followConnection = 
+RunService.Heartbeat:Connect(function()
                         if not gui.Parent or not attackEnabled then return end
-
                         local currentTarget = attackTarget
                         local currentCharTarget = currentTarget and currentTarget.Character
-                        local currentRootTarget = currentCharTarget
-                            and currentCharTarget:FindFirstChild("HumanoidRootPart")
+                        local currentRootTarget = currentCharTarget and currentCharTarget:FindFirstChild("HumanoidRootPart")
                         local currentChar, currentRoot = getCharacter()
-
                         if currentRootTarget and currentCharTarget and currentChar and currentRoot then
                             local mySize = currentChar:GetExtentsSize().Z
                             local targetSize = currentCharTarget:GetExtentsSize().Z
                             local safeDistance = (mySize / 2) + (targetSize / 2) + 2
-
-                            currentChar:PivotTo(
-                                currentRootTarget.CFrame * CFrame.new(0, 0, safeDistance)
-                            )
+                            currentChar:PivotTo(currentRootTarget.CFrame * CFrame.new(0, 0, safeDistance))
                         end
                     end)
-                    followStarted = true
                 end
 
-                if followStarted and gui.Parent and attackEnabled then
-                    task.wait(0.25)
-
-                    local throwEvent = events and events:FindFirstChild("Throw")
-                    if throwEvent then
-                        pcall(function()
-                            throwEvent:FireServer()
-                        end)
-                    end
-
-                    task.wait(1.5)
-                end
-
+                local throwEvent = events and events:FindFirstChild("Throw")
+                if throwEvent then pcall(function() throwEvent:FireServer() end) end
+                task.wait(1.5)
                 disconnectFollow()
                 attackPhase = "idle"
                 task.wait(1)
@@ -531,7 +532,9 @@ task.spawn(function()
     end
 end)
 
+-- TP TARGET PAGE: behavior copied from Test.lua.txt.
 -- Cycle: teleport 2.5 studs behind selected target, wait 1.5s,
+-- then teleport to a random point 20-80 studs from the activation position.
 local targetPage = Instance.new("Frame")
 targetPage.Name = "TPTargetPage"
 targetPage.Size = UDim2.fromScale(1, 1)
@@ -646,6 +649,7 @@ local function targetRun(chosen, token)
         targetStop()
         task.defer(function()
             if gui.Parent then
+                -- Refresh below is assigned after the function declaration.
                 if refreshTargetPlayers then refreshTargetPlayers() end
             end
         end)
@@ -714,7 +718,7 @@ function refreshTargetPlayers()
         local name = label(row, "PlayerName", text,
             UDim2.new(1, -10, 1, 0), UDim2.fromOffset(6, 0),
             Enum.Font.GothamBold,
-            selected and Color3.fromRGB(255, 90, 120) or (chosen and
+            selected and Color3.fromRGB(255, 90, 120) or (chosen and 
 WHITE or MUTED),
             7, Enum.TextXAlignment.Left)
         name.TextTruncate = Enum.TextTruncate.AtEnd
@@ -769,6 +773,8 @@ task.delay(0.75, function()
     if gui.Parent then refreshTargetPlayers() end
 end)
 
+-- AUTO GRAB TARGET PAGE: V8 behavior copied from Test.lua.txt.
+-- Mutually exclusive with TP TARGET; only one teleport cycle runs at a time.
 local autoGrabPage = Instance.new("Frame")
 autoGrabPage.Name = "AutoGrabTargetPage"
 autoGrabPage.Size = UDim2.fromScale(1, 1)
@@ -987,6 +993,7 @@ local function autoGrabToggle(target)
         return
     end
 
+    -- Mutual exclusion: TP TARGET and AUTO GRAB never run together.
     targetStop()
     autoGrabStop()
 
@@ -1096,6 +1103,8 @@ task.delay(0.75, function()
     if gui.Parent then refreshAutoGrabPlayers() end
 end)
 
+-- PLAYER STATS ESP: adapted from Test.lua.txt.
+-- Toggle from the ESP PLAYER row on the main GELUT panel.
 local playerESPEnabled = false
 local espObjects = {}
 
@@ -1284,6 +1293,7 @@ task.spawn(function()
     end
 end)
 
+-- ANTI ANCHOR: behavior copied from Test.lua.txt.
 -- Only affects BaseParts inside the local player's character.
 local antiAnchorEnabled = false
 local antiAnchorConnection = nil
@@ -1317,12 +1327,20 @@ featureButtons[4].Activated:Connect(function()
     setAntiAnchorEnabled(not antiAnchorEnabled)
 end)
 
+player.CharacterAdded:Connect(function()
+    -- The RenderStepped connection reads the current Character each frame.
+    -- No additional connection is needed after respawn.
+end)
+
+-- FLIGHT MODE: movement logic copied from Test.lua.txt.
 -- Mobile: joystick controls horizontal movement; jump button ascends.
 -- Desktop: WASD/joystick horizontal movement, Space ascends, Shift/Ctrl descends.
 local flightEnabled = false
 local flightSpeed = 60
 local flyBodyVelocity = nil
 
+-- Compact numeric speed control beside the FLIGHT MODE ON/OFF row.
+-- The row remains the toggle; the textbox edits speed independently.
 featureButtons[5].Size = UDim2.new(1, -42, 0, 20)
 featureButtons[5].TextSize = 7
 featureButtons[5].Text = "✈  FLIGHT MODE     OFF"
@@ -1469,6 +1487,8 @@ task.spawn(function()
     if humanoid then humanoid.PlatformStand = false end
 end)
 
+-- RUN SPEED: movement logic copied from Test.lua.txt.
+-- Numeric value has no fixed upper cap; default is 100, minimum is 0.
 local runSpeedEnabled = false
 local runSpeedValue = 100
 local runSpeedConnection = nil
@@ -1546,6 +1566,7 @@ featureButtons[6].Activated:Connect(function()
     setRunSpeedEnabled(not runSpeedEnabled)
 end)
 
+-- BIG PLATFORM: based on Test.lua.txt, enlarged to 180,000 x 180,000.
 local bigPlatformEnabled = false
 local bigPlatformPart = nil
 
@@ -1599,6 +1620,7 @@ player.CharacterAdded:Connect(function()
     end
 end)
 
+-- ANTI VOID: rescue the local character when it falls below Y = -50.
 local antiVoidEnabled = false
 local antiVoidConnection = nil
 
@@ -1631,6 +1653,7 @@ featureButtons[8].Activated:Connect(function()
     setAntiVoidEnabled(not antiVoidEnabled)
 end)
 
+-- WALL CLIP: disable collision on the local character while enabled.
 -- Original CanCollide values are restored when the feature is turned off.
 local wallClipEnabled = false
 local wallClipConnection = nil
