@@ -18,32 +18,41 @@ if not player then
 end
 local playerGui = player:WaitForChild("PlayerGui")
 
--- WHITELIST TAHAP 1: hanya pemeriksaan akses.
--- UI, kubus dEnz, dan seluruh fitur GELUT asli tidak diubah.
-local WhitelistedUsers = {
-    "hanssaputra15",
-    "L0rdDarkShad0w",
-    "chibhothax",
-    "Mount2702Blanc",
-    "ibrak4dabra",
-    "chimicaramel",
-    "miskalagi",
-    "syunako52",
-    "Carlydemul",
-    "ChickenMcNuggetsBG",
-    "aiodxv7si",
-    "mummy77776",
-    "TOBI03310",
-    "bubbleblob1926",
-    "tkz_ht"
-}
+--==================================================
+-- dEnzCreator | REMOTE WHITELIST GATE
+-- Satu WhiteList.lua dipakai bersama oleh beberapa script.
+--==================================================
 
-if not table.find(WhitelistedUsers, player.Name) then
-    warn("[GELUT] ACCESS DENIED: @" .. player.Name)
+local WHITELIST_URL =
+    "https://raw.githubusercontent.com/dEnzETW/EatTheWorld/refs/heads/main/WhiteList.lua"
+
+local whitelistOK, whitelistResult = pcall(function()
+    local source = game:HttpGet(WHITELIST_URL)
+
+    assert(type(source) == "string" and #source > 0,
+        "Whitelist file kosong")
+
+    local chunk, compileError = loadstring(source)
+    assert(chunk, compileError or "Whitelist compile gagal")
+
+    return chunk()
+end)
+
+if not whitelistOK or whitelistResult ~= true then
+    warn("[GELUT] WHITELIST DENIED / LOAD FAILED")
+
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "dEnzCreator",
+            Text = "Whitelist gagal atau akses ditolak.",
+            Duration = 5
+        })
+    end)
+
     return
 end
-print("[GELUT] WHITELIST OK: @" .. player.Name)
 
+print("[GELUT] REMOTE WHITELIST OK: @" .. player.Name)
 
 -- Cleanup this build only
 local old
@@ -434,32 +443,16 @@ Players.PlayerRemoving:Connect(function(leaving)
     task.defer(refreshPlayers)
 end)
 
--- Original random positioning cadence retained from Test.lua.txt
-task.spawn(function()
-    while gui.Parent do
-        if attackEnabled and attackPhase ~= "follow" then
-            local char, root = getCharacter()
-            if char and root then
-                pcall(function()
-                    char:PivotTo(CFrame.new(
-                        math.random(-140, 140),
-                        math.random(10, 50),
-                        math.random(-140, 140)
-                    ))
-                end)
-            end
-            task.wait(0.3)
-        else
-            task.wait(0.05)
-        end
-    end
-end)
+-- TP ATTACK cycle: mengikuti pola Dynamic Attack TP dari rEm.lua.
+-- Urutan: random TP sekali -> 1.5s -> Grab -> 2s -> Follow + Throw -> 1.5s -> jeda 1s.
+local function getAttackRandomPosition()
+    return Vector3.new(math.random(-100, 100), math.random(10, 50), math.random(-100, 100))
+end
 
--- Original prepare -> Grab -> follow -> Throw cadence retained
 task.spawn(function()
     while gui.Parent do
         if not attackEnabled then
-            task.wait(0.15)
+            task.wait(0.5)
         else
             local target = attackTarget
             local char, root = getCharacter()
@@ -467,51 +460,67 @@ task.spawn(function()
             local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
 
             if target and target.Parent == Players and targetRoot and char and root then
-                attackPhase = "prepare"
+                -- rEm: random teleport hanya sekali di awal satu siklus.
+                pcall(function()
+                    char:PivotTo(CFrame.new(getAttackRandomPosition()))
+                end)
+
                 task.wait(1.5)
-                if not gui.Parent or not attackEnabled then
+                if not gui.Parent or not attackEnabled or attackTarget ~= target then
+                    disconnectFollow()
                     attackPhase = "idle"
                     continue
                 end
 
+                -- rEm: Grab dari Events milik karakter lokal.
                 char, root = getCharacter()
                 local events = char and char:FindFirstChild("Events")
                 local grab = events and events:FindFirstChild("Grab")
-                if grab then pcall(function() grab:FireServer() end) end
+                if grab then
+                    pcall(function() grab:FireServer() end)
+                end
 
                 task.wait(2)
-                if not gui.Parent or not attackEnabled then
+                if not gui.Parent or not attackEnabled or attackTarget ~= target then
+                    disconnectFollow()
                     attackPhase = "idle"
                     continue
                 end
 
-                target = attackTarget
-                targetChar = target and target.Character
-                targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+                -- rEm: Follow target melalui Heartbeat, lalu Throw.
                 char, root = getCharacter()
+                targetChar = target.Character
+                targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
                 events = char and char:FindFirstChild("Events")
 
                 if targetRoot and char and root then
                     attackPhase = "follow"
-                    followConnection = 
-RunService.Heartbeat:Connect(function()
-                        if not gui.Parent or not attackEnabled then return end
-                        local currentTarget = attackTarget
-                        local currentCharTarget = currentTarget and currentTarget.Character
-                        local currentRootTarget = currentCharTarget and currentCharTarget:FindFirstChild("HumanoidRootPart")
+                    disconnectFollow()
+                    followConnection = RunService.Heartbeat:Connect(function()
+                        if not gui.Parent or not attackEnabled or attackTarget ~= target then return end
                         local currentChar, currentRoot = getCharacter()
-                        if currentRootTarget and currentCharTarget and currentChar and currentRoot then
+                        local currentTargetChar = target.Character
+                        local currentTargetRoot = currentTargetChar
+                            and currentTargetChar:FindFirstChild("HumanoidRootPart")
+
+                        if currentTargetRoot and currentTargetChar and currentChar and currentRoot then
                             local mySize = currentChar:GetExtentsSize().Z
-                            local targetSize = currentCharTarget:GetExtentsSize().Z
+                            local targetSize = currentTargetChar:GetExtentsSize().Z
                             local safeDistance = (mySize / 2) + (targetSize / 2) + 2
-                            currentChar:PivotTo(currentRootTarget.CFrame * CFrame.new(0, 0, safeDistance))
+                            currentChar:PivotTo(
+                                currentTargetRoot.CFrame * CFrame.new(0, 0, safeDistance)
+                            )
                         end
                     end)
+
+                    local throwEvent = events and events:FindFirstChild("Throw")
+                    if throwEvent then
+                        pcall(function() throwEvent:FireServer() end)
+                    end
+
+                    task.wait(1.5)
                 end
 
-                local throwEvent = events and events:FindFirstChild("Throw")
-                if throwEvent then pcall(function() throwEvent:FireServer() end) end
-                task.wait(1.5)
                 disconnectFollow()
                 attackPhase = "idle"
                 task.wait(1)
@@ -521,6 +530,7 @@ RunService.Heartbeat:Connect(function()
             end
         end
     end
+    disconnectFollow()
 end)
 
 -- TP TARGET PAGE: behavior copied from Test.lua.txt.
