@@ -155,11 +155,9 @@ layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = list
 
 -- Test parameters. Follow distance is measured from the target HRP reference frame.
-local FOLLOW_DISTANCE = 3
+local FOLLOW_DISTANCE = 5
 local GRAB_SETTLE_TIME = 0.08
 local FOLLOW_AFTER_GRAB = 1.5
-local DROP_GUARD_RADIUS = 6
-local DROP_NAMES = {Cube=true, Token=true, Candy=true, Present=true, Ornament=true, Egg=true}
 
 local armed = false
 local busy = false
@@ -223,33 +221,6 @@ local function teleportBehind(targetRoot)
     return pcall(function() character:PivotTo(behindCFrame) end)
 end
 
-local function nearbyFoodBlocksGrab()
-    local _, _, myRoot = getCharacter(player)
-    if not myRoot then return true, "karakter lokal tidak siap" end
-    local ok, found = pcall(function()
-        for _, item in ipairs(workspace:GetDescendants()) do
-            if item:IsA("BasePart") and DROP_NAMES[item.Name] then
-                local ancestor = item.Parent
-                local belongsToPlayer = false
-                while ancestor and ancestor ~= workspace do
-                    if ancestor:IsA("Model") and Players:GetPlayerFromCharacter(ancestor) then
-                        belongsToPlayer = true
-                        break
-                    end
-                    ancestor = ancestor.Parent
-                end
-                if not belongsToPlayer and (item.Position - myRoot.Position).Magnitude <= DROP_GUARD_RADIUS then
-                    return item.Name
-                end
-            end
-        end
-        return nil
-    end)
-    if not ok then return true, "pemeriksaan objek gagal" end
-    if found then return true, "ada objek " .. tostring(found) .. " di dekat karakter" end
-    return false, nil
-end
-
 local function fireGrabOnce()
     local replicatedStorage = game:GetService("ReplicatedStorage")
     local localEvents = replicatedStorage:FindFirstChild("LocalEvents")
@@ -257,8 +228,6 @@ local function fireGrabOnce()
     if not grabEvent or not grabEvent:IsA("BindableEvent") then
         return false, "LocalEvents.Grab tidak ditemukan / bukan BindableEvent"
     end
-    local blocked, reason = nearbyFoodBlocksGrab()
-    if blocked then return false, "Grab dilewati: " .. tostring(reason) end
     local ok, err = pcall(function() grabEvent:Fire() end)
     if not ok then return false, "Grab error: " .. tostring(err) end
     return true, "Grab dipanggil satu kali"
