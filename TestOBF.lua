@@ -4,9 +4,10 @@
       1) ON untuk mengaktifkan mode tunggu.
       2) Klik satu nama di daftar player.
       3) Simpan posisi awal, teleport 4 stud di belakang target,
-         ikuti target dengan PivotTo berkala (bukan setiap frame), panggil Grab satu kali,
-         pertahankan follow sebentar, lalu kembali ke posisi awal.
-      4) Tidak ada auto-repeat. Klik nama lagi untuk aksi berikutnya.
+         ikuti target dengan PivotTo berkala (bukan setiap frame), panggil Grab hingga
+         lima kali dengan jeda, pertahankan follow sebentar, lalu kembali ke posisi awal.
+      4) Satu klik menjalankan satu rangkaian dengan maksimal lima pemanggilan Grab.
+         Tidak ada pengulangan rangkaian otomatis; klik nama lagi untuk aksi berikutnya.
 ]]
 
 local Players = game:GetService("Players")
@@ -160,7 +161,9 @@ local FOLLOW_INTERVAL = 0.12       -- at most about 8 follow checks per second
 local FOLLOW_MOVE_THRESHOLD = 0.4  -- move only after target shifts meaningfully
 local FOLLOW_TURN_DOT = 0.996      -- update after roughly 5 degrees of target rotation
 local GRAB_SETTLE_TIME = 0.15
-local FOLLOW_AFTER_GRAB = 1.5
+local GRAB_ATTEMPTS = 5          -- jumlah pemanggilan Grab dalam satu klik target
+local GRAB_RETRY_INTERVAL = 0.25 -- jeda antar pemanggilan Grab
+local FOLLOW_AFTER_GRAB = 1.0
 
 local armed = false
 local busy = false
@@ -321,12 +324,31 @@ local function runOneAction(target)
                 return
             end
 
-            local called, message = fireGrabOnce()
-            if not called then
-                failureReason = message
-                return
+            local successfulCalls = 0
+            for attempt = 1, GRAB_ATTEMPTS do
+                if not targetIsValid(target, token) then
+                    failureReason = "Aksi dibatalkan / target tidak valid"
+                    return
+                end
+
+                local called, message = fireGrabOnce()
+                if not called then
+                    failureReason = message
+                    return
+                end
+
+                successfulCalls += 1
+                setStatus(
+                    "Grab " .. successfulCalls .. "/" .. GRAB_ATTEMPTS .. " | follow aktif",
+                    Color3.fromRGB(100, 220, 150)
+                )
+
+                if attempt < GRAB_ATTEMPTS
+                    and not waitWhileValid(target, token, GRAB_RETRY_INTERVAL) then
+                    failureReason = "Aksi dibatalkan / target tidak valid"
+                    return
+                end
             end
-            setStatus("Grab dipanggil | mengikuti target", Color3.fromRGB(100, 220, 150))
 
             if not waitWhileValid(target, token, FOLLOW_AFTER_GRAB) then
                 failureReason = "Target hilang atau aksi dibatalkan"
