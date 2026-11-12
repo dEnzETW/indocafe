@@ -1,12 +1,11 @@
 --[[
-    TP GRAB TEST - LocalEvents.Grab
+    TP GRAB TEST - Character.Events.Grab (3 args)
     Mekanisme:
       1) ON untuk mengaktifkan mode tunggu.
       2) Klik satu nama di daftar player.
-      3) Simpan posisi awal, teleport 4 stud di belakang target,
-         ikuti target dengan PivotTo berkala (bukan setiap frame), panggil Grab hingga
-         lima kali dengan jeda, pertahankan follow sebentar, lalu kembali ke posisi awal.
-      4) Satu klik menjalankan satu rangkaian dengan maksimal lima pemanggilan Grab.
+      3) Simpan posisi awal, PivotTo satu kali ke posisi 3 stud di belakang target.
+      4) Tanpa FOLLOW. Panggil Grab maksimal dua kali dengan jeda, lalu kembali ke posisi awal.
+      5) Satu klik menjalankan satu rangkaian dengan maksimal dua pemanggilan Grab.
          Tidak ada pengulangan rangkaian otomatis; klik nama lagi untuk aksi berikutnya.
 ]]
 
@@ -154,23 +153,17 @@ layout.Padding = UDim.new(0, 4)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = list
 
--- Test parameters. Follow distance is measured from the target HRP reference frame.
-local FOLLOW_DISTANCE = 4
--- Follow is deliberately throttled: no Heartbeat-per-frame PivotTo calls.
-local FOLLOW_INTERVAL = 0.12       -- at most about 8 follow checks per second
-local FOLLOW_MOVE_THRESHOLD = 0.4  -- move only after target shifts meaningfully
-local FOLLOW_TURN_DOT = 0.996      -- update after roughly 5 degrees of target rotation
+-- Test parameters. Tidak ada FOLLOW; hanya satu PivotTo ke posisi 3 stud.
+local TELEPORT_DISTANCE = 3
 local GRAB_SETTLE_TIME = 0.15
-local GRAB_ATTEMPTS = 5          -- jumlah pemanggilan Grab dalam satu klik target
-local GRAB_RETRY_INTERVAL = 0.25 -- jeda antar pemanggilan Grab
-local FOLLOW_AFTER_GRAB = 1.0
+local GRAB_ATTEMPTS = 2
+local GRAB_RETRY_INTERVAL = 0.25
+local RETURN_HOLD_TIME = 0.5 -- jeda singkat sebelum kembali ke posisi awal
 
 local armed = false
 local busy = false
 local selectedTarget = nil
 local actionToken = 0
-local followConnection = nil
-local followEnabled = false
 local rowByPlayer = {}
 
 local function getCharacter(who)
@@ -180,14 +173,6 @@ local function getCharacter(who)
     local root = character:FindFirstChild("HumanoidRootPart")
     if not humanoid or not root or humanoid.Health <= 0 then return nil, nil, nil end
     return character, humanoid, root
-end
-
-local function disconnectFollow()
-    followEnabled = false
-    if followConnection then
-        followConnection:Disconnect()
-        followConnection = nil
-    end
 end
 
 local function setStatus(message, color)
@@ -222,7 +207,7 @@ end
 
 local function getBehindCFrame(targetRoot)
     if not targetRoot or not targetRoot.Parent then return nil end
-    local behindPosition = targetRoot.Position - targetRoot.CFrame.LookVector * FOLLOW_DISTANCE
+    local behindPosition = targetRoot.Position - targetRoot.CFrame.LookVector * TELEPORT_DISTANCE
     local facing = targetRoot.CFrame.LookVector
     return CFrame.lookAt(behindPosition, behindPosition + facing, targetRoot.CFrame.UpVector)
 end
@@ -234,48 +219,21 @@ local function teleportBehind(targetRoot)
     return pcall(function() character:PivotTo(behindCFrame) end)
 end
 
-local function startThrottledFollow(target, token)
-    followEnabled = true
-    task.spawn(function()
-        local _, _, initialTargetRoot = getCharacter(target)
-        local lastTargetPosition = initialTargetRoot and initialTargetRoot.Position or nil
-        local lastTargetLook = initialTargetRoot and initialTargetRoot.CFrame.LookVector or nil
-        while followEnabled and targetIsValid(target, token) do
-            local _, _, liveTargetRoot = getCharacter(target)
-            local _, _, myRoot = getCharacter(player)
-            if not liveTargetRoot or not myRoot then break end
-
-            local targetPosition = liveTargetRoot.Position
-            local targetLook = liveTargetRoot.CFrame.LookVector
-            local movedEnough = not lastTargetPosition
-                or (targetPosition - lastTargetPosition).Magnitude >= FOLLOW_MOVE_THRESHOLD
-            local turnedEnough = not lastTargetLook
-                or targetLook:Dot(lastTargetLook) <= FOLLOW_TURN_DOT
-
-            if movedEnough or turnedEnough then
-                local desiredCFrame = getBehindCFrame(liveTargetRoot)
-                if desiredCFrame then
-                    pcall(function() player.Character:PivotTo(desiredCFrame) end)
-                    lastTargetPosition = targetPosition
-                    lastTargetLook = targetLook
-                end
-            end
-            task.wait(FOLLOW_INTERVAL)
-        end
-        followEnabled = false
-    end)
-end
-
 local function fireGrabOnce()
-    local replicatedStorage = game:GetService("ReplicatedStorage")
-    local localEvents = replicatedStorage:FindFirstChild("LocalEvents")
-    local grabEvent = localEvents and localEvents:FindFirstChild("Grab")
-    if not grabEvent or not grabEvent:IsA("BindableEvent") then
-        return false, "LocalEvents.Grab tidak ditemukan / bukan BindableEvent"
+    -- Test remote karakter dengan tiga argumen sesuai kandidat CN-KEDADA.
+    -- Tidak memakai ReplicatedStorage.LocalEvents pada revisi ini.
+    local character = player.Character
+    local events = character and character:FindFirstChild("Events")
+    local grabEvent = events and events:FindFirstChild("Grab")
+    if not grabEvent or not grabEvent:IsA("RemoteEvent") then
+        return false, "Character.Events.Grab tidak ditemukan / bukan RemoteEvent"
     end
-    local ok, err = pcall(function() grabEvent:Fire() end)
-    if not ok then return false, "Grab error: " .. tostring(err) end
-    return true, "LocalEvents.Grab:Fire() dipanggil"
+
+    local ok, err = pcall(function()
+        grabEvent:FireServer(false, false, true)
+    end)
+    if not ok then return false, "Character.Events.Grab error: " .. tostring(err) end
+    return true, "Character.Events.Grab:FireServer(false, false, true) dipanggil"
 end
 
 local function waitWhileValid(target, token, duration)
@@ -315,10 +273,7 @@ local function runOneAction(target)
                 return
             end
 
-            -- Follow at a controlled interval, and only PivotTo after meaningful movement/turning.
-            disconnectFollow()
-            startThrottledFollow(target, token)
-
+            -- No FOLLOW: PivotTo only once, then hold position while issuing two Grab calls.
             if not waitWhileValid(target, token, GRAB_SETTLE_TIME) then
                 failureReason = "Aksi dibatalkan / target tidak valid"
                 return
@@ -339,7 +294,7 @@ local function runOneAction(target)
 
                 successfulCalls += 1
                 setStatus(
-                    "Grab " .. successfulCalls .. "/" .. GRAB_ATTEMPTS .. " | follow aktif",
+                    "Grab " .. successfulCalls .. "/" .. GRAB_ATTEMPTS .. " | tanpa follow",
                     Color3.fromRGB(100, 220, 150)
                 )
 
@@ -349,16 +304,16 @@ local function runOneAction(target)
                     return
                 end
             end
-
-            if not waitWhileValid(target, token, FOLLOW_AFTER_GRAB) then
-                failureReason = "Target hilang atau aksi dibatalkan"
-                return
-            end
             completed = true
         end)
         if not ok then failureReason = tostring(err) end
 
-        disconnectFollow()
+        -- Hold position after Grab before returning to the saved starting point.
+        if completed then
+            setStatus("Grab selesai | tahan posisi 0,5 detik", Color3.fromRGB(100, 220, 150))
+            task.wait(RETURN_HOLD_TIME)
+        end
+
         -- Return to the exact position captured before this click, if character still exists.
         local currentCharacter = player.Character
         if currentCharacter and startCFrame then
@@ -438,7 +393,7 @@ end
 
 onButton.Activated:Connect(function()
     if busy then
-        -- OFF cancels follow and the current sequence; runOneAction restores the saved origin.
+        -- OFF cancels the current sequence; runOneAction restores the saved origin.
         armed = false
         actionToken += 1
         onButton.Text = "● OFF"
@@ -453,7 +408,6 @@ refreshButton.Activated:Connect(refreshPlayers)
 closeButton.Activated:Connect(function()
     armed = false
     actionToken += 1
-    disconnectFollow()
     gui:Destroy()
 end)
 
@@ -463,7 +417,6 @@ end)
 Players.PlayerRemoving:Connect(function(leaving)
     if leaving == selectedTarget then
         actionToken += 1
-        disconnectFollow()
     end
     task.defer(function() if gui.Parent then refreshPlayers() end end)
 end)
