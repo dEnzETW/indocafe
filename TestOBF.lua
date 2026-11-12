@@ -346,7 +346,7 @@ local function runFollowOnly(target, token)
             local targetSize = currentTargetChar:GetExtentsSize()
             local myDepth = math.max(mySize.Z, mySize.X * 0.65)
             local targetDepth = math.max(targetSize.Z, targetSize.X * 0.65)
-            local sizePadding = math.max(2, targetDepth * 0.05)
+            local sizePadding = math.max(1, targetDepth * 0.05)
             local safeDistance = (myDepth * 0.5) + (targetDepth * 0.5) + sizePadding
 
             -- Place our character BEHIND the target, never in front of them.
