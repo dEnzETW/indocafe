@@ -1,5 +1,5 @@
 --[[
-    TP GRAB TEST - Character.Events.Grab (3 args)
+    TP GRAB TEST B - Character.Events.Grab (2 args)
     Mekanisme:
       1) ON untuk mengaktifkan mode tunggu.
       2) Klik satu nama di daftar player.
@@ -220,8 +220,8 @@ local function teleportBehind(targetRoot)
 end
 
 local function fireGrabOnce()
-    -- Test remote karakter dengan tiga argumen sesuai kandidat CN-KEDADA.
-    -- Tidak memakai ReplicatedStorage.LocalEvents pada revisi ini.
+    -- Varian uji B: dua argumen, mengikuti pola Grab ETW pembanding.
+    -- Remote tetap Character.Events.Grab; tidak mengubah mekanisme teleport.
     local character = player.Character
     local events = character and character:FindFirstChild("Events")
     local grabEvent = events and events:FindFirstChild("Grab")
@@ -230,10 +230,10 @@ local function fireGrabOnce()
     end
 
     local ok, err = pcall(function()
-        grabEvent:FireServer(false, false, true)
+        grabEvent:FireServer(false, false)
     end)
     if not ok then return false, "Character.Events.Grab error: " .. tostring(err) end
-    return true, "Character.Events.Grab:FireServer(false, false, true) dipanggil"
+    return true, "Character.Events.Grab:FireServer(false, false) dipanggil"
 end
 
 local function waitWhileValid(target, token, duration)
