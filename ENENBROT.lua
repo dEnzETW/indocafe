@@ -1,6 +1,6 @@
 --[[
     ENENBROT | Standalone Defense Panel
-    Version: 0.1.5
+    Version: 0.1.6
     Status: Initial CORE DEFENSE extraction + panel foundation
     Visual reference: dEnzCreator (dark navy / purple accent / Gotham)
     Width reference: 125 px
@@ -569,14 +569,19 @@ local function createFolder(folderData, folderOrder)
 
     local expand = Instance.new("TextButton")
     expand.Name = "Expand"
-    expand.Size = UDim2.fromOffset(20, 23)
-    expand.Position = UDim2.new(1, -22, 0, 1)
-    expand.BackgroundTransparency = 1
+    expand.Size = UDim2.fromOffset(25, 25)
+    expand.Position = UDim2.new(1, -27, 0, 0)
+    expand.BackgroundColor3 = Color3.fromRGB(28, 34, 57)
+    expand.BorderSizePixel = 0
     expand.Text = "+"
     expand.TextColor3 = TEXT
     expand.Font = Enum.Font.GothamBold
-    expand.TextSize = 13
+    expand.TextSize = 17
     expand.Parent = folderHeader
+
+    local expandCorner = Instance.new("UICorner")
+    expandCorner.CornerRadius = UDim.new(0, 5)
+    expandCorner.Parent = expand
 
     local content = Instance.new("Frame")
     content.Name = "Features"
@@ -635,7 +640,7 @@ local function createFolder(folderData, folderOrder)
 
         local x = input.Position.X
         local rightEdge = folderHeader.AbsolutePosition.X + folderHeader.AbsoluteSize.X
-        if x >= rightEdge - 24 then
+        if x >= rightEdge - 29 then
             return
         end
 
@@ -699,7 +704,7 @@ end
 
 local function updatePanelHeight()
     if minimized then
-        panel.Size = UDim2.fromOffset(PANEL_WIDTH, HEADER_HEIGHT + 8)
+        panel.Size = UDim2.fromOffset(PANEL_WIDTH, HEADER_HEIGHT)
         scroll.Visible = false
         return
     end
@@ -800,4 +805,4 @@ gui.Destroying:Connect(function()
 end)
 
 updatePanelHeight()
-print("[ENENBROT] v0.1.5 loaded | CORE DEFENSE foundation ready")
+print("[ENENBROT] v0.1.6 loaded | CORE DEFENSE foundation ready")
