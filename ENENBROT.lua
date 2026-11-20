@@ -1,6 +1,6 @@
 --[[
     ENENBROT | Standalone Defense Panel
-    Version: 0.1.4
+    Version: 0.1.5
     Status: Initial CORE DEFENSE extraction + panel foundation
     Visual reference: dEnzCreator (dark navy / purple accent / Gotham)
     Width reference: 125 px
@@ -351,8 +351,8 @@ title.Name = "Title"
 title.Size = UDim2.new(1, -34, 1, 0)
 title.Position = UDim2.fromOffset(8, 0)
 title.BackgroundTransparency = 1
-title.Text = "ENENBROT"
-title.TextColor3 = TEXT
+title.Text = "dEnzCreator"
+title.TextColor3 = Color3.fromRGB(190, 174, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
 title.TextXAlignment = Enum.TextXAlignment.Left
@@ -376,8 +376,8 @@ minimizeCorner.Parent = minimize
 
 local scroll = Instance.new("ScrollingFrame")
 scroll.Name = "FolderList"
-scroll.Position = UDim2.fromOffset(5, 37)
-scroll.Size = UDim2.new(1, -10, 1, -42)
+scroll.Position = UDim2.fromOffset(5, 36)
+scroll.Size = UDim2.new(1, -10, 1, -39)
 scroll.BackgroundTransparency = 1
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 3
@@ -619,21 +619,56 @@ local function createFolder(folderData, folderOrder)
         wrapper.Size = UDim2.new(1, -2, 0, expanded and (28 + contentHeight) or 25)
     end
 
+    -- Plus/minus is the ONLY accordion control.
     expand.Activated:Connect(function()
         setExpanded(not expanded)
     end)
 
-    -- Folder header is accordion-only. It never changes to ON/green
-    -- and never enables or disables the features inside it.
+    -- Dragging a folder title/header moves the entire panel.
+    -- The rightmost plus/minus hit area is excluded from dragging.
+    folderHeader.Active = true
     folderHeader.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            local x = input.Position.X
-            local rightEdge = folderHeader.AbsolutePosition.X + folderHeader.AbsoluteSize.X
-            if x < rightEdge - 22 then
-                setExpanded(not expanded)
-            end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
         end
+
+        local x = input.Position.X
+        local rightEdge = folderHeader.AbsolutePosition.X + folderHeader.AbsoluteSize.X
+        if x >= rightEdge - 24 then
+            return
+        end
+
+        local dragging = true
+        local dragStart = input.Position
+        local startPosition = panel.Position
+        local changedConnection
+        local endedConnection
+
+        changedConnection = UserInputService.InputChanged:Connect(function(moveInput)
+            if dragging and (
+                moveInput.UserInputType == Enum.UserInputType.MouseMovement
+                or moveInput.UserInputType == Enum.UserInputType.Touch
+            ) then
+                local delta = moveInput.Position - dragStart
+                panel.Position = UDim2.new(
+                    startPosition.X.Scale,
+                    startPosition.X.Offset + delta.X,
+                    startPosition.Y.Scale,
+                    startPosition.Y.Offset + delta.Y
+                )
+            end
+        end)
+
+        endedConnection = UserInputService.InputEnded:Connect(function(endInput)
+            if endInput == input
+                or endInput.UserInputType == Enum.UserInputType.MouseButton1
+                or endInput.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+                if changedConnection then changedConnection:Disconnect() end
+                if endedConnection then endedConnection:Disconnect() end
+            end
+        end)
     end)
 
     folderControllers[folderData.key] = {
@@ -648,20 +683,43 @@ for index, folder in ipairs(folders) do
 end
 
 --==================================================
--- PANEL DRAG / MINIMIZE / CLEANUP
+-- PANEL DRAG / MINIMIZE / CLEANUP\n-- No footer buttons or decorative red controls are created; panel height follows content.
 --==================================================
 
 local minimized = false
-local expandedHeight = 300
+local panelBottomPadding = 7
+local scrollTop = 36
+
+local function getMaxPanelHeight()
+    local camera = workspace.CurrentCamera
+    local viewportHeight = camera and camera.ViewportSize.Y or 720
+    -- Keep the panel inside the visible screen while allowing the folder list to scroll.
+    return math.max(HEADER_HEIGHT + 50, math.floor(viewportHeight * 0.78))
+end
 
 local function updatePanelHeight()
     if minimized then
         panel.Size = UDim2.fromOffset(PANEL_WIDTH, HEADER_HEIGHT + 8)
         scroll.Visible = false
-    else
-        panel.Size = UDim2.fromOffset(PANEL_WIDTH, expandedHeight)
-        scroll.Visible = true
+        return
     end
+
+    local contentHeight = listLayout.AbsoluteContentSize.Y
+    local desiredHeight = scrollTop + contentHeight + panelBottomPadding
+    local expandedHeight = math.min(desiredHeight, getMaxPanelHeight())
+    panel.Size = UDim2.fromOffset(PANEL_WIDTH, expandedHeight)
+    scroll.Position = UDim2.fromOffset(5, scrollTop)
+    scroll.Size = UDim2.new(1, -10, 1, -(scrollTop + 5))
+    scroll.Visible = true
+end
+
+-- Recalculate as folders open/close; this removes the oversized empty footer.
+listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    task.defer(updatePanelHeight)
+end)
+
+if workspace.CurrentCamera then
+    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updatePanelHeight)
 end
 
 minimize.Activated:Connect(function()
@@ -742,4 +800,4 @@ gui.Destroying:Connect(function()
 end)
 
 updatePanelHeight()
-print("[ENENBROT] v0.1.4 loaded | CORE DEFENSE foundation ready")
+print("[ENENBROT] v0.1.5 loaded | CORE DEFENSE foundation ready")
