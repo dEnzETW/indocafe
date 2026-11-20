@@ -1,6 +1,6 @@
 --[[
     ENENBROT | Standalone Defense Panel
-    Version: 0.1.6
+    Version: 0.1.9 | CHARACTER STABILITY
     Status: Initial CORE DEFENSE extraction + panel foundation
     Visual reference: dEnzCreator (dark navy / purple accent / Gotham)
     Width reference: 125 px
@@ -8,13 +8,19 @@
     Separation:
       - Does not load, modify, or depend on dEnzCreator.
       - Does not overwrite Empty Tools or MountEiger source files.
-      - All non-CORE modules are placeholders and remain inactive.
+      - GRAB DEFENSE and later modules remain placeholders and inactive.
       - Anchor Lock is experimental and intentionally unavailable in this build.
 
     CORE DEFENSE:
       - Anchor Deflect: suppresses supported force objects on the local character.
       - Anti Anchor: detects and releases anchored BaseParts on the local character.
       - Both modules track state and clean up their own connections/state on OFF.
+
+    CHARACTER STABILITY (initial):
+      - Anti-Ragdoll: requests GettingUp when the local Humanoid enters Ragdoll/FallingDown.
+      - Physics State Protection: disables Ragdoll/FallingDown states while enabled, then restores prior flags.
+      - PlatformStand Protection: clears PlatformStand while enabled, then restores its prior value.
+      - Character Recovery remains unavailable pending a safe, defined recovery policy.
 ]]
 
 local Players = game:GetService("Players")
@@ -47,6 +53,15 @@ local featureState = {
     AnchorDeflect = false,
     AntiAnchor = false,
     AnchorLock = false,
+
+    AntiFling = false,
+    VelocityGuard = false,
+    AngularVelocityGuard = false,
+    SafePositionRecovery = false,
+
+    AntiRagdoll = false,
+    PhysicsStateProtection = false,
+    PlatformStandProtection = false,
 }
 
 local connections = {}
@@ -262,6 +277,263 @@ local function stopAntiAnchor()
     restoreAnchoredParts()
 end
 
+--==================================================
+-- ANTI-FLING MODULES
+-- Source basis: Empty Tools TestOBF.lua (1).txt
+-- The source's other-player collision/touch mutation is intentionally omitted:
+-- it had no reliable OFF restoration in the inspected source.
+--==================================================
+
+local lastSafeCFrame = nil
+
+local function getLocalRootAndHumanoid()
+    local character = LocalPlayer.Character
+    if not character then
+        return nil, nil
+    end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid then
+        return nil, nil
+    end
+
+    return root, humanoid
+end
+
+local function updateAntiFlingConnection()
+    local anyEnabled =
+        featureState.AntiFling
+        or featureState.VelocityGuard
+        or featureState.AngularVelocityGuard
+        or featureState.SafePositionRecovery
+
+    if not anyEnabled then
+        disconnect("AntiFlingHeartbeat")
+        lastSafeCFrame = nil
+        return
+    end
+
+    if connections.AntiFlingHeartbeat then
+        return
+    end
+
+    connections.AntiFlingHeartbeat = RunService.Heartbeat:Connect(function()
+        local root, humanoid = getLocalRootAndHumanoid()
+        if not root or not humanoid or humanoid.Health <= 0 then
+            return
+        end
+
+        local linearVelocity = safeGet(root, "AssemblyLinearVelocity")
+        if typeof(linearVelocity) ~= "Vector3" then
+            linearVelocity = safeGet(root, "Velocity")
+        end
+
+        local angularVelocity = safeGet(root, "AssemblyAngularVelocity")
+        if typeof(angularVelocity) ~= "Vector3" then
+            angularVelocity = safeGet(root, "RotVelocity")
+        end
+
+        if typeof(linearVelocity) ~= "Vector3" then
+            linearVelocity = Vector3.zero
+        end
+        if typeof(angularVelocity) ~= "Vector3" then
+            angularVelocity = Vector3.zero
+        end
+
+        -- Record a grounded, low-speed position as a recovery checkpoint.
+        if featureState.SafePositionRecovery then
+            local floorMaterial = safeGet(humanoid, "FloorMaterial")
+            local onGround = floorMaterial ~= nil and floorMaterial ~= Enum.Material.Air
+            if onGround
+                and linearVelocity.Magnitude < 80
+                and angularVelocity.Magnitude < 30 then
+                lastSafeCFrame = root.CFrame
+            end
+        end
+
+        -- Emergency fling threshold from the source implementation.
+        if featureState.AntiFling then
+            if linearVelocity.Magnitude > 250 or angularVelocity.Magnitude > 80 then
+                safeSet(root, "AssemblyLinearVelocity", Vector3.zero)
+                safeSet(root, "Velocity", Vector3.zero)
+                safeSet(root, "AssemblyAngularVelocity", Vector3.zero)
+                safeSet(root, "RotVelocity", Vector3.zero)
+
+                if featureState.SafePositionRecovery and lastSafeCFrame then
+                    safeSet(root, "CFrame", lastSafeCFrame)
+                end
+
+                -- Avoid applying the ordinary speed guards in the same frame
+                -- as an emergency correction.
+                return
+            end
+        end
+
+        -- Linear speed guard: source-derived horizontal and upward caps.
+        if featureState.VelocityGuard then
+            local moveDirection = safeGet(humanoid, "MoveDirection")
+            if typeof(moveDirection) ~= "Vector3" then
+                moveDirection = Vector3.zero
+            end
+
+            local walkSpeed = safeGet(humanoid, "WalkSpeed") or 16
+            local jumpPower = safeGet(humanoid, "JumpPower") or 50
+            local maxHorizontal = math.max(walkSpeed * 1.6, 30)
+            local jumpCap = math.max(jumpPower * 1.1, 55)
+            local floorMaterial = safeGet(humanoid, "FloorMaterial")
+            local onGround = floorMaterial ~= nil and floorMaterial ~= Enum.Material.Air
+
+            local horizontal = Vector3.new(linearVelocity.X, 0, linearVelocity.Z)
+            local horizontalMagnitude = horizontal.Magnitude
+            local newHorizontal = horizontal
+            local newY = linearVelocity.Y
+            local shouldSet = false
+
+            if newY > jumpCap then
+                newY = jumpCap
+                shouldSet = true
+            end
+
+            if onGround and moveDirection.Magnitude < 0.05 and horizontalMagnitude > 2 then
+                newHorizontal = Vector3.zero
+                shouldSet = true
+            elseif horizontalMagnitude > maxHorizontal then
+                if moveDirection.Magnitude > 0.05 then
+                    newHorizontal = moveDirection.Unit * maxHorizontal
+                elseif horizontalMagnitude > 0 then
+                    newHorizontal = horizontal.Unit * maxHorizontal
+                end
+                shouldSet = true
+            end
+
+            if shouldSet then
+                local correctedVelocity = Vector3.new(
+                    newHorizontal.X,
+                    newY,
+                    newHorizontal.Z
+                )
+                safeSet(root, "AssemblyLinearVelocity", correctedVelocity)
+                safeSet(root, "Velocity", correctedVelocity)
+            end
+        end
+
+        -- Angular guard is independent from linear velocity protection.
+        if featureState.AngularVelocityGuard and angularVelocity.Magnitude > 0.5 then
+            safeSet(root, "AssemblyAngularVelocity", Vector3.zero)
+            safeSet(root, "RotVelocity", Vector3.zero)
+        end
+    end)
+end
+
+--==================================================
+-- CHARACTER STABILITY MODULES
+-- Local-character only. No remote calls, no script/constraint destruction.
+--==================================================
+
+local characterStabilityHumanoid = nil
+local savedHumanoidStateFlags = nil
+local savedPlatformStand = nil
+
+local function restoreCharacterStability()
+    disconnect("AntiRagdollState")
+    disconnect("PlatformStandChanged")
+
+    local humanoid = characterStabilityHumanoid
+    if humanoid and humanoid.Parent then
+        if savedHumanoidStateFlags then
+            for stateType, wasEnabled in pairs(savedHumanoidStateFlags) do
+                pcall(function()
+                    humanoid:SetStateEnabled(stateType, wasEnabled)
+                end)
+            end
+        end
+        if savedPlatformStand ~= nil then
+            safeSet(humanoid, "PlatformStand", savedPlatformStand)
+        end
+    end
+
+    characterStabilityHumanoid = nil
+    savedHumanoidStateFlags = nil
+    savedPlatformStand = nil
+end
+
+local function updateCharacterStability(character)
+    character = character or LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    if humanoid ~= characterStabilityHumanoid then
+        restoreCharacterStability()
+        if not humanoid then return end
+        characterStabilityHumanoid = humanoid
+        savedHumanoidStateFlags = {}
+        savedPlatformStand = safeGet(humanoid, "PlatformStand")
+    else
+        disconnect("AntiRagdollState")
+        disconnect("PlatformStandChanged")
+    end
+
+    if not humanoid then return end
+
+    local protectedStates = {
+        Enum.HumanoidStateType.Ragdoll,
+        Enum.HumanoidStateType.FallingDown,
+    }
+
+    for _, stateType in ipairs(protectedStates) do
+        if savedHumanoidStateFlags[stateType] == nil then
+            local ok, enabled = pcall(function()
+                return humanoid:GetStateEnabled(stateType)
+            end)
+            savedHumanoidStateFlags[stateType] = ok and enabled or false
+        end
+        if featureState.PhysicsStateProtection then
+            pcall(function() humanoid:SetStateEnabled(stateType, false) end)
+        else
+            pcall(function()
+                humanoid:SetStateEnabled(stateType, savedHumanoidStateFlags[stateType])
+            end)
+        end
+    end
+
+    if featureState.AntiRagdoll then
+        connections.AntiRagdollState = humanoid.StateChanged:Connect(function(_, newState)
+            if not featureState.AntiRagdoll or humanoid ~= characterStabilityHumanoid then
+                return
+            end
+            if newState == Enum.HumanoidStateType.Ragdoll
+                or newState == Enum.HumanoidStateType.FallingDown then
+                pcall(function()
+                    humanoid.PlatformStand = false
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end)
+            end
+        end)
+    end
+
+    if featureState.PlatformStandProtection then
+        safeSet(humanoid, "PlatformStand", false)
+        connections.PlatformStandChanged = humanoid:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+            if featureState.PlatformStandProtection and humanoid == characterStabilityHumanoid
+                and humanoid.PlatformStand then
+                safeSet(humanoid, "PlatformStand", false)
+            end
+        end)
+    else
+        if savedPlatformStand ~= nil then
+            safeSet(humanoid, "PlatformStand", savedPlatformStand)
+        end
+    end
+
+    if not (featureState.AntiRagdoll or featureState.PhysicsStateProtection or featureState.PlatformStandProtection) then
+        restoreCharacterStability()
+    end
+end
+
+local function refreshCharacterStability()
+    updateCharacterStability(LocalPlayer.Character)
+end
+
 local function setFeature(featureName, enabled)
     enabled = enabled == true
     if featureState[featureName] == nil then
@@ -282,6 +554,15 @@ local function setFeature(featureName, enabled)
         else
             stopAntiAnchor()
         end
+    elseif featureName == "AntiRagdoll"
+        or featureName == "PhysicsStateProtection"
+        or featureName == "PlatformStandProtection" then
+        refreshCharacterStability()
+    elseif featureName == "AntiFling"
+        or featureName == "VelocityGuard"
+        or featureName == "AngularVelocityGuard"
+        or featureName == "SafePositionRecovery" then
+        updateAntiFlingConnection()
     end
 
     return true
@@ -298,6 +579,10 @@ characterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(character
     if featureState.AntiAnchor then
         startAntiAnchor(character)
     end
+
+    lastSafeCFrame = nil
+    updateAntiFlingConnection()
+    updateCharacterStability(character)
 end)
 
 --==================================================
@@ -348,13 +633,13 @@ headerCorner.Parent = header
 
 local title = Instance.new("TextLabel")
 title.Name = "Title"
-title.Size = UDim2.new(1, -34, 1, 0)
+title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.fromOffset(8, 0)
 title.BackgroundTransparency = 1
 title.Text = "dEnzCreator"
 title.TextColor3 = Color3.fromRGB(190, 174, 255)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 13
+title.TextSize = 15
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
@@ -468,19 +753,19 @@ local folders = {
         key = "02_ANTI_FLING",
         title = "ANTI-FLING",
         features = {
-            {label = "Anti-Fling", available = false},
-            {label = "Velocity Guard", available = false},
-            {label = "Angular Velocity Guard", available = false},
-            {label = "Safe Position Recovery", available = false},
+            {label = "Anti-Fling", key = "AntiFling", available = true},
+            {label = "Velocity Guard", key = "VelocityGuard", available = true},
+            {label = "Angular Velocity Guard", key = "AngularVelocityGuard", available = true},
+            {label = "Safe Position Recovery", key = "SafePositionRecovery", available = true},
         }
     },
     {
         key = "03_CHARACTER_STABILITY",
         title = "CHARACTER",
         features = {
-            {label = "Anti-Ragdoll", available = false},
-            {label = "Physics State Protection", available = false},
-            {label = "PlatformStand Protection", available = false},
+            {label = "Anti-Ragdoll", key = "AntiRagdoll", available = true},
+            {label = "Physics State Protection", key = "PhysicsStateProtection", available = true},
+            {label = "PlatformStand Protection", key = "PlatformStandProtection", available = true},
             {label = "Character Recovery", available = false},
         }
     },
@@ -639,8 +924,11 @@ local function createFolder(folderData, folderOrder)
         end
 
         local x = input.Position.X
-        local rightEdge = folderHeader.AbsolutePosition.X + folderHeader.AbsoluteSize.X
-        if x >= rightEdge - 29 then
+        local leftEdge = folderHeader.AbsolutePosition.X
+        local dragZoneRightEdge = leftEdge + (folderHeader.AbsoluteSize.X * 0.5)
+
+        -- Thumb-friendly drag zone: left half of the folder header only.
+        if x > dragZoneRightEdge then
             return
         end
 
@@ -778,8 +1066,17 @@ local function safeShutdown()
 
     featureState.AnchorDeflect = false
     featureState.AntiAnchor = false
+    featureState.AntiFling = false
+    featureState.VelocityGuard = false
+    featureState.AngularVelocityGuard = false
+    featureState.SafePositionRecovery = false
+    featureState.AntiRagdoll = false
+    featureState.PhysicsStateProtection = false
+    featureState.PlatformStandProtection = false
+    restoreCharacterStability()
     stopAnchorDeflect()
     stopAntiAnchor()
+    updateAntiFlingConnection()
 
     if characterAddedConnection then
         pcall(function()
@@ -805,4 +1102,4 @@ gui.Destroying:Connect(function()
 end)
 
 updatePanelHeight()
-print("[ENENBROT] v0.1.6 loaded | CORE DEFENSE foundation ready")
+print("[ENENBROT] v0.1.8 loaded | CORE DEFENSE foundation ready")
