@@ -1,6 +1,6 @@
 --[[
     ENENBROT | Standalone Defense Panel
-    Version: 0.1.0
+    Version: 0.1.1
     Status: Initial CORE DEFENSE extraction + panel foundation
     Visual reference: dEnzCreator (dark navy / purple accent / Gotham)
     Width reference: 125 px
@@ -392,11 +392,16 @@ listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listLayout.Parent = scroll
 
 local function makeToggle(parent, labelText, featureName, order, isAvailable)
-    local row = Instance.new("Frame")
+    -- Whole feature row is the toggle surface: OFF = navy, ON = green.
+    -- No separate circular switch or ON/OFF text is displayed.
+    local row = Instance.new("TextButton")
     row.Name = featureName or ("Placeholder_" .. tostring(order))
     row.Size = UDim2.new(1, -2, 0, 22)
-    row.BackgroundColor3 = ROW_BG
+    row.BackgroundColor3 = OFF_BG
     row.BorderSizePixel = 0
+    row.AutoButtonColor = isAvailable
+    row.Active = isAvailable
+    row.Text = ""
     row.LayoutOrder = order
     row.Parent = parent
 
@@ -405,7 +410,7 @@ local function makeToggle(parent, labelText, featureName, order, isAvailable)
     rowCorner.Parent = row
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -30, 1, 0)
+    label.Size = UDim2.new(1, -12, 1, 0)
     label.Position = UDim2.fromOffset(6, 0)
     label.BackgroundTransparency = 1
     label.Text = labelText
@@ -416,30 +421,16 @@ local function makeToggle(parent, labelText, featureName, order, isAvailable)
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Parent = row
 
-    local toggle = Instance.new("TextButton")
-    toggle.Name = "Toggle"
-    toggle.Size = UDim2.fromOffset(13, 13)
-    toggle.Position = UDim2.new(1, -19, 0.5, -6.5)
-    toggle.BackgroundColor3 = OFF_BG
-    toggle.BorderSizePixel = 0
-    toggle.Text = ""
-    toggle.AutoButtonColor = isAvailable
-    toggle.Active = isAvailable
-    toggle.Parent = row
-
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(1, 0)
-    toggleCorner.Parent = toggle
-
     local enabled = false
     local function render()
-        toggle.BackgroundColor3 = enabled and ON_BG or OFF_BG
-        toggle.BackgroundTransparency = isAvailable and 0 or 0.35
+        row.BackgroundColor3 = enabled and ON_BG or OFF_BG
+        row.BackgroundTransparency = isAvailable and 0 or 0.25
+        label.TextColor3 = isAvailable and TEXT or Color3.fromRGB(112, 119, 143)
     end
     render()
 
     if isAvailable then
-        toggle.Activated:Connect(function()
+        row.Activated:Connect(function()
             enabled = not enabled
             render()
             setFeature(featureName, enabled)
@@ -578,16 +569,12 @@ local function createFolder(folderData, folderOrder)
 
     local master = Instance.new("TextButton")
     master.Name = "FolderMaster"
-    master.Size = UDim2.fromOffset(12, 12)
-    master.Position = UDim2.new(1, -37, 0.5, -6)
-    master.BackgroundColor3 = OFF_BG
+    master.Size = UDim2.fromOffset(17, 23)
+    master.Position = UDim2.new(1, -42, 0, 1)
+    master.BackgroundTransparency = 1
     master.BorderSizePixel = 0
     master.Text = ""
     master.Parent = folderHeader
-
-    local masterCorner = Instance.new("UICorner")
-    masterCorner.CornerRadius = UDim.new(1, 0)
-    masterCorner.Parent = master
 
     local expand = Instance.new("TextButton")
     expand.Name = "Expand"
@@ -633,7 +620,7 @@ local function createFolder(folderData, folderOrder)
     local expanded = false
     local masterEnabled = false
     local function updateMasterVisual()
-        master.BackgroundColor3 = masterEnabled and ON_BG or OFF_BG
+        folderHeader.BackgroundColor3 = masterEnabled and ON_BG or FOLDER_BG
     end
 
     local function setExpanded(value)
@@ -779,4 +766,4 @@ gui.Destroying:Connect(function()
 end)
 
 updatePanelHeight()
-print("[ENENBROT] v0.1.0 loaded | CORE DEFENSE foundation ready")
+print("[ENENBROT] v0.1.1 loaded | CORE DEFENSE foundation ready")
