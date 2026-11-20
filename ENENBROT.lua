@@ -1,6 +1,6 @@
 --[[
     ENENBROT | Standalone Defense Panel
-    Version: 0.1.1
+    Version: 0.1.4
     Status: Initial CORE DEFENSE extraction + panel foundation
     Visual reference: dEnzCreator (dark navy / purple accent / Gotham)
     Width reference: 125 px
@@ -396,7 +396,7 @@ local function makeToggle(parent, labelText, featureName, order, isAvailable)
     -- No separate circular switch or ON/OFF text is displayed.
     local row = Instance.new("TextButton")
     row.Name = featureName or ("Placeholder_" .. tostring(order))
-    row.Size = UDim2.new(1, -2, 0, 22)
+    row.Size = UDim2.new(1, -2, 0, 25)
     row.BackgroundColor3 = OFF_BG
     row.BorderSizePixel = 0
     row.AutoButtonColor = isAvailable
@@ -416,7 +416,7 @@ local function makeToggle(parent, labelText, featureName, order, isAvailable)
     label.Text = labelText
     label.TextColor3 = isAvailable and MUTED or Color3.fromRGB(112, 119, 143)
     label.Font = Enum.Font.GothamMedium
-    label.TextSize = 9
+    label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Parent = row
@@ -567,15 +567,6 @@ local function createFolder(folderData, folderOrder)
     folderTitle.TextTruncate = Enum.TextTruncate.AtEnd
     folderTitle.Parent = folderHeader
 
-    local master = Instance.new("TextButton")
-    master.Name = "FolderMaster"
-    master.Size = UDim2.fromOffset(17, 23)
-    master.Position = UDim2.new(1, -42, 0, 1)
-    master.BackgroundTransparency = 1
-    master.BorderSizePixel = 0
-    master.Text = ""
-    master.Parent = folderHeader
-
     local expand = Instance.new("TextButton")
     expand.Name = "Expand"
     expand.Size = UDim2.fromOffset(20, 23)
@@ -618,16 +609,12 @@ local function createFolder(folderData, folderOrder)
     end
 
     local expanded = false
-    local masterEnabled = false
-    local function updateMasterVisual()
-        folderHeader.BackgroundColor3 = masterEnabled and ON_BG or FOLDER_BG
-    end
 
     local function setExpanded(value)
         expanded = value
         content.Visible = expanded
         expand.Text = expanded and "–" or "+"
-        local contentHeight = expanded and (#folderData.features * 24 - 2) or 0
+        local contentHeight = expanded and (#folderData.features * 27 - 2) or 0
         content.Size = UDim2.new(1, 0, 0, contentHeight)
         wrapper.Size = UDim2.new(1, -2, 0, expanded and (28 + contentHeight) or 25)
     end
@@ -636,33 +623,22 @@ local function createFolder(folderData, folderOrder)
         setExpanded(not expanded)
     end)
 
+    -- Folder header is accordion-only. It never changes to ON/green
+    -- and never enables or disables the features inside it.
     folderHeader.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
-            -- Header title area toggles accordion; master/expand buttons remain independent.
             local x = input.Position.X
             local rightEdge = folderHeader.AbsolutePosition.X + folderHeader.AbsoluteSize.X
-            if x < rightEdge - 43 then
+            if x < rightEdge - 22 then
                 setExpanded(not expanded)
             end
         end
     end)
 
-    master.Activated:Connect(function()
-        masterEnabled = not masterEnabled
-        for _, controller in ipairs(availableControllers) do
-            controller.Set(masterEnabled)
-        end
-        updateMasterVisual()
-    end)
-
     folderControllers[folderData.key] = {
-        SetMaster = function(value)
-            masterEnabled = value == true
-            for _, controller in ipairs(availableControllers) do
-                controller.Set(masterEnabled)
-            end
-            updateMasterVisual()
+        SetExpanded = function(value)
+            setExpanded(value == true)
         end
     }
 end
@@ -766,4 +742,4 @@ gui.Destroying:Connect(function()
 end)
 
 updatePanelHeight()
-print("[ENENBROT] v0.1.1 loaded | CORE DEFENSE foundation ready")
+print("[ENENBROT] v0.1.4 loaded | CORE DEFENSE foundation ready")
